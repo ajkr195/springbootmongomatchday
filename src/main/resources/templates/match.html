@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>MatchDay: [[|${match.teamA.name} - ${match.teamB.name}|]]</title>
+
+    <link data-th-href="@{/css/bootstrap.css}" rel="stylesheet">
+    <link data-th-href="@{/css/matchday.css}" rel="stylesheet">
+
+    <script data-th-inline="javascript">
+
+        /*
+         * MatchStatus will be in charge of the EventSource that will retrieve
+         * the Server-Sent Events (SSE) sent from the server to update the match
+         * status.
+         *
+         * NOTE these events will be rendered in HTML by Thymeleaf, so all needed
+         * to insert them into the document will be using the "innerHTML" property.
+         */
+        function MatchStatus () {
+
+            this.source = null;
+
+            this.start = function () {
+
+                var matchSummaryBlock = document.getElementById("matchStatus");
+                var sourceUrl = [[@{|/match/${matchId}/statusStream|}]];
+
+                this.source = new EventSource(sourceUrl);
+
+                this.source.addEventListener("message", function (event) {
+                    // This is just HTML, so no need to do anything else
+                    matchSummaryBlock.innerHTML = event.data;
+                });
+
+                this.source.onerror = function () {
+                    this.close();
+                };
+
+            };
+
+            this.stop = function() {
+                this.source.close();
+            }
+
+        }
+
+
+        /*
+         * MatchComments will be in charge of the EventSource that will retrieve
+         * the Server-Sent Events (SSE) sent from the server to update the match
+         * comment list.
+         *
+         * NOTE these events will be rendered in JSON by Spring WebFlux (using Jackson),
+         * so we will need to parse them and intervene on the DOM in order to create
+         * the needed nodes to display the info coming in the JSON objects.
+         */
+        function MatchComments () {
+
+            this.source = null;
+
+            this.start = function () {
+
+                var matchCommentsTable = document.getElementById("matchComments");
+                var sourceUrl = [[@{|/match/${matchId}/commentStream|(timestamp=${commentsTimestamp})}]];
+
+                this.source = new EventSource(sourceUrl);
+
+                this.source.addEventListener("message", function (event) {
+
+                    // These events are JSON, so parsing and DOM fiddling are needed
+
+                    var comment = JSON.parse(event.data);
+
+                    var row = matchCommentsTable.getElementsByTagName("tbody")[0].insertRow(0);
+                    var cell1 = row.insertCell(0);
+                    var cell2 = row.insertCell(1);
+
+                    cell1.className = "author";
+                    cell1.innerHTML = comment.author;
+
+                    cell2.className = "text";
+                    cell2.innerHTML = comment.text;
+
+
+                });
+
+                this.source.onerror = function () {
+                    this.close();
+                };
+
+            };
+
+            this.stop = function() {
+                this.source.close();
+            }
+
+        }
+
+
+        /*
+         * Instantiate both SSE controller objects.
+         */
+        matchStatus = new MatchStatus();
+        matchComments = new MatchComments();
+
+
+        /*
+         * Register callbacks for starting and stopping the SSE controller.
+         */
+        window.onload = function() {
+            matchStatus.start();
+            matchComments.start();
+        };
+        window.onbeforeunload = function() {
+            matchStatus.stop();
+            matchComments.stop();
+        }
+
+    </script>
+
+</head>
+<body>
+
+    <div class="container">
+
+        <div id="logo" class="row">
+            <a data-th-href="@{/matches}"><img data-th-src="@{/images/matchday_logo.png}"></a>
+        </div>
+
+        <div class="row">
+
+            <div id="matchStatus" class="col-md-6">
+                <div data-th-each="status : ${statusStream}">
+                    <table class="table">
+                        <tbody>
+                            <tr class="result">
+                                <td class="teamA">[[${status.teamAName}]]</td>
+                                <td class="score">[[${status.teamAScore}]]</td>
+                                <td class="score">[[${status.teamBScore}]]</td>
+                                <td class="teamB">[[${status.teamBName}]]</td>
+                            </tr>
+                            <tr data-th-each="eventInfo : ${status.events}" data-th-classappend="|event${eventInfo.type}|">
+                                <td class="playerA">[[${eventInfo.teamCode == status.teamACode} ? ${eventInfo.playerName}]]</td>
+                                <td class="eventicon"><img data-th-if="${eventInfo.teamCode == status.teamACode}"
+                                                           data-th-src="@{|/images/${eventInfo.type}.png|}"></td>
+                                <td class="eventicon"><img data-th-if="${eventInfo.teamCode == status.teamBCode}"
+                                                           data-th-src="@{|/images/${eventInfo.type}.png|}"></td>
+                                <td class="playerB">[[${eventInfo.teamCode == status.teamBCode} ? ${eventInfo.playerName}]]</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <table id="matchComments" class="table table-striped">
+                    <thead>
+                        <tr><th colspan="2">Match comments</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr data-th-each="comment : ${commentStream}">
+                            <td class="author">[[${comment.author}]]</td>
+                            <td class="text">[[${comment.text}]]</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+</body>
+</html>
